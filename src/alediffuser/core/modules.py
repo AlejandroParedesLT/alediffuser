@@ -3,10 +3,10 @@ import torch.nn as nn
 import math
 
 class MLP(nn.Module):
-    def __init__(self, input_dim:int, output_dim:int):
+    def __init__(self, input_dim:int, output_dim:int,device:torch.device,dtype:torch.dtype):
         super().__init__()
         self.fn=nn.Sequential(
-            nn.Linear(input_dim,output_dim),
+            nn.Linear(input_dim,output_dim,device=device,dtype=dtype),
             nn.ReLU()
         )
     def forward(self,x):
@@ -17,15 +17,17 @@ class PositionalEmbedding(nn.Module):
         self, 
         T:int, # Timesteps
         output_dim:int, # dimension on output
+        device,
+        dtype,
         **kwargs):
         super().__init__()
         self.output_dim=output_dim
         # Create an array of T positions [[1,1,1,1,1]] 
-        position=torch.arange(T).unsqueeze(1)
+        position=torch.arange(T,device=device,dtype=dtype).unsqueeze(1)
         # PE(pos,2i)=sin(pos/1000^(2i/d_model))
-        div_term=torch.exp(torch.arange(0,output_dim,2)*(-math.log(1000.0)/output_dim))
+        div_term=torch.exp(torch.arange(0,output_dim,2,dtype=dtype,device=device)*(-math.log(1000.0)/output_dim))
         # PE(pos,2i)=sin(pos/1000^(2i/d_model))
-        pe=torch.zeros(T,output_dim)
+        pe=torch.zeros(T,output_dim,device=device,dtype=dtype)
         pe[:, 0::2]=torch.sin(position*div_term) # Apply positional encoding to even
         pe[:, 1::2]=torch.cos(position*div_term) # positional embedding to odd
         self.register_buffer('pe',pe)
@@ -43,13 +45,15 @@ class TimeEmbedding(nn.Module):
         T:int, 
         hidden_dim,
         output_dim,
+        device,
+        dtype,
         **kwargs):
         super().__init__()
-        self.positionalEmbedding=PositionalEmbedding(T=T,output_dim=hidden_dim)
+        self.positionalEmbedding=PositionalEmbedding(T=T,output_dim=hidden_dim,device=device,dtype=dtype)
         self.seq=nn.Sequential(
-            nn.Linear(hidden_dim,output_dim),
+            nn.Linear(hidden_dim,output_dim,device=device,dtype=dtype),
             nn.SiLU(),
-            nn.Linear(output_dim,output_dim)
+            nn.Linear(output_dim,output_dim,device=device,dtype=dtype)
         )
 
     def forward(self,x):
@@ -89,42 +93,50 @@ class TimeEmbedding(nn.Module):
 
 
 
-def Normalize(in_channels, num_groups=32):
-    return torch.nn.GroupNorm(num_groups=num_groups, num_channels=in_channels, eps=1e-6, affine=True)
+def Normalize(in_channels, num_groups=32,device=None,dtype=None):
+    return torch.nn.GroupNorm(num_groups=num_groups, num_channels=in_channels, eps=1e-6, affine=True,device=device,dtype=dtype)
 
 
 class SpatialSelfAttention(nn.Module):
-    def __init__(self, n_channel):
+    def __init__(self, n_channel,device,dtype):
         super().__init__()
         self.n_channel=n_channel
-        self.norm=Normalize(in_channels=n_channel)
+        self.norm=Normalize(in_channels=n_channel,device=device,dtype=dtype)
         self.q=nn.Conv2d(
             in_channels=n_channel,
             out_channels=n_channel,
             kernel_size=1,
             stride=1,
-            padding=0
+            padding=0,
+            device=device,
+            dtype=dtype
         )
         self.k=nn.Conv2d(
             in_channels=n_channel,
             out_channels=n_channel,
             kernel_size=1,
             stride=1,
-            padding=0
+            padding=0,
+            device=device,
+            dtype=dtype
         )
         self.v=nn.Conv2d(
             in_channels=n_channel,
             out_channels=n_channel,
             kernel_size=1,
             stride=1,
-            padding=0
+            padding=0,
+            device=device,
+            dtype=dtype
         )
         self.proj_out=nn.Conv2d(
             in_channels=n_channel,
             out_channels=n_channel,
             kernel_size=1,
             stride=1,
-            padding=0
+            padding=0,
+            device=device,
+            dtype=dtype
         )
     def forward(self,x:torch.Tensor):
         h_=x
@@ -152,7 +164,7 @@ class SpatialSelfAttention(nn.Module):
 
 
 class DownSample(nn.Module):
-    def __init__(self, in_channels,with_conv:bool):
+    def __init__(self, in_channels,with_conv:bool,device,dtype):
         super().__init__()
         self.in_channels=in_channels
         self.with_conv=with_conv
@@ -162,7 +174,10 @@ class DownSample(nn.Module):
                 in_channels,
                 kernel_size=3,
                 stride=2,
-                padding=0)
+                padding=0,
+                device=device,
+                dtype=dtype
+            )
     def forward(self, x):
         if self.with_conv:
             pad=(0,1,0,1)
@@ -173,7 +188,7 @@ class DownSample(nn.Module):
         return x
 
 class Upsample(nn.Module):
-    def __init__(self, in_channels,with_conv):
+    def __init__(self, in_channels,with_conv,device,dtype):
         super().__init__()
         self.with_conv=with_conv
         if self.with_conv:
@@ -182,7 +197,9 @@ class Upsample(nn.Module):
                 out_channels=in_channels,
                 kernel_size=3,
                 stride=1,
-                padding=1
+                padding=1,
+                device=device,
+                dtype=dtype
             )
     def forward(self, x):
         x=nn.functional.interpolate(x,scale_factor=2.0, mode='nearest')
@@ -202,7 +219,9 @@ class ResnetBlock(nn.Module):
             out_channels=None, 
             conv_shortcut=False,
             dropout,
-            temb_channels=512
+            temb_channels=512,
+            device,
+            dtype
         ):
         super().__init__()
         self.in_channels=in_channels
@@ -210,43 +229,57 @@ class ResnetBlock(nn.Module):
         self.use_conv_shortcut=conv_shortcut
         
         # stage 1
-        self.norm1=Normalize(in_channels=in_channels)
+        self.norm1=Normalize(in_channels=in_channels,device=device,dtype=dtype)
         self.conv1=nn.Conv2d(
             in_channels=self.in_channels,
             out_channels=self.out_channels,
             kernel_size=3,
             stride=1,
             padding=1,
-            bias=False
+            bias=False,
+            device=device,
+            dtype=dtype
             )
         if temb_channels>0:
-            self.temb_proj=nn.Linear(temb_channels,
-                                     out_channels)
+            self.temb_proj=nn.Linear(
+                temb_channels,
+                out_channels,
+                device=device,
+                dtype=dtype)
             
-        self.norm2=Normalize(out_channels)
+        self.norm2=Normalize(out_channels,device=device,dtype=dtype)
         self.dropout=nn.Dropout(dropout)
-        self.conv2=nn.Conv2d(in_channels=out_channels,
-                             out_channels=out_channels,
-                             kernel_size=3,
-                             stride=1,
-                             padding=1,
-                             bias=False)
+        self.conv2=nn.Conv2d(
+            in_channels=out_channels,
+            out_channels=out_channels,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            bias=False,
+            device=device,
+            dtype=dtype)
         
         if self.in_channels!=self.out_channels:
             if self.use_conv_shortcut:
-                self.conv_shortcut=nn.Conv2d(in_channels=in_channels,
-                                                 out_channels=out_channels,
-                                                 kernel_size=3,
-                                                 stride=1,
-                                                 padding=1,
-                                                 bias=False)
+                self.conv_shortcut=nn.Conv2d(
+                    in_channels=in_channels,
+                    out_channels=out_channels,
+                    kernel_size=3,
+                    stride=1,
+                    padding=1,
+                    bias=False,
+                    device=device,
+                    dtype=dtype)
             else:
-                self.nin_shortcut=nn.Conv2d(in_channels=in_channels,
-                                            out_channels=out_channels,
-                                            kernel_size=1,
-                                            stride=1,
-                                            padding=0,
-                                            bias=False)
+                self.nin_shortcut=nn.Conv2d(
+                    in_channels=in_channels,
+                    out_channels=out_channels,
+                    kernel_size=1,
+                    stride=1,
+                    padding=0,
+                    bias=False,
+                    device=device,
+                    dtype=dtype)
             
     def forward(self, x, temb):
         h=x

@@ -18,7 +18,9 @@ class UNet(nn.Module):
         is_debug=False,
         resamp_with_conv=True,
         dropout=0.0,
-        num_classes=None
+        num_classes=None,
+        device:torch.device=None,
+        dtype:torch.dtype=None
         ):
         super().__init__()
         time_emb_dim=hid_size*4
@@ -27,7 +29,7 @@ class UNet(nn.Module):
         self.ch_mult=steps
 
         # In and time embedding
-        self.time_embedding=TimeEmbedding(T,hid_size,time_emb_dim)
+        self.time_embedding=TimeEmbedding(T,hid_size,time_emb_dim,device=device,dtype=dtype)
 
         # First convolution
         self.firs_conv=nn.Conv2d(
@@ -35,15 +37,16 @@ class UNet(nn.Module):
             out_channels=steps[0]*hid_size,
             kernel_size=3,
             stride=1,
-            padding=1
+            padding=1,
+            device=device,dtype=dtype
         )
         
         if num_classes:
             self.cond_embedding = nn.Sequential(
-                nn.Embedding(num_classes, hid_size),
-                nn.Linear(hid_size, time_emb_dim),
+                nn.Embedding(num_classes, hid_size,device=device,dtype=dtype),
+                nn.Linear(hid_size, time_emb_dim,device=device,dtype=dtype),
                 nn.ReLU(),
-                nn.Linear(time_emb_dim, time_emb_dim)
+                nn.Linear(time_emb_dim, time_emb_dim,device=device,dtype=dtype)
             )
         
         # resnet blocks, downsample convolutions
@@ -61,14 +64,18 @@ class UNet(nn.Module):
                         in_channels=block_in,
                         out_channels=block_out,
                         temb_channels=time_emb_dim,
-                        dropout=dropout
+                        dropout=dropout,
+                        device=device,
+                        dtype=dtype
                     )
                 )
                 block_in=block_out
                 if i_level in attention_step_indexes:
                     attn_block.append(
                         SpatialSelfAttention(
-                            n_channel=block_in
+                            n_channel=block_in,
+                            device=device,
+                            dtype=dtype
                         )
                     )
             downSampleBlock=nn.Module()
@@ -77,7 +84,9 @@ class UNet(nn.Module):
             if i_level!=len(self.ch_mult) - 1:
                 downSampleBlock.downsample=DownSample(
                     in_channels=block_in,
-                    with_conv=resamp_with_conv
+                    with_conv=resamp_with_conv,
+                    device=device,
+                    dtype=dtype
                     )
             self.down_sample.append(downSampleBlock)
         
@@ -87,16 +96,22 @@ class UNet(nn.Module):
                         in_channels=block_in,
                         out_channels=block_in,
                         temb_channels=time_emb_dim,
-                        dropout=dropout
+                        dropout=dropout,
+                        device=device,
+                        dtype=dtype
                         )
         self.mid.atte1=SpatialSelfAttention(
-            block_in
+            block_in,
+            device=device,
+            dtype=dtype
         )
         self.mid.block2=ResnetBlock(
                         in_channels=block_in,
                         out_channels=block_in,
                         temb_channels=time_emb_dim,
-                        dropout=dropout
+                        dropout=dropout,
+                        device=device,
+                        dtype=dtype
                         )
 
 
@@ -115,14 +130,18 @@ class UNet(nn.Module):
                         in_channels=block_in + skip_in,
                         out_channels=block_out,
                         temb_channels=time_emb_dim,
-                        dropout=dropout
+                        dropout=dropout,
+                        device=device,
+                        dtype=dtype
                     )
                 )
                 block_in = block_out
                 if i_level in attention_step_indexes:
                     attn_block.append(
                         SpatialSelfAttention(
-                            n_channel=block_out
+                            n_channel=block_out,
+                            device=device,
+                        dtype=dtype
                         )
                     )
             upSampleBlock=nn.Module()
@@ -131,7 +150,9 @@ class UNet(nn.Module):
             if i_level!=0:
                 upSampleBlock.upsample=Upsample(
                     in_channels=block_in,
-                    with_conv=resamp_with_conv
+                    with_conv=resamp_with_conv,
+                    device=device,
+                        dtype=dtype
                 )
             self.up_sample.insert(0,upSampleBlock)
             # block_in = block_out
@@ -142,7 +163,9 @@ class UNet(nn.Module):
             out_channels,
             kernel_size=3,
             stride=1,
-            padding=1
+            padding=1,
+            device=device,
+            dtype=dtype
         )
     
     def forward(self, x, t, cond, mask):
@@ -201,6 +224,8 @@ class Encoder(nn.Module):
             resolution,
             z_channels,
             double_z=True,
+            device=None,
+            dtype=None
         ):
         super().__init__()
         self.ch=ch
@@ -222,7 +247,9 @@ class Encoder(nn.Module):
             out_channels=self.ch,
             kernel_size=3,
             stride=1,
-            padding=1
+            padding=1,
+            device=device,
+            dtype=dtype
         )
 
         curr_res=resolution
@@ -240,21 +267,27 @@ class Encoder(nn.Module):
                         in_channels=block_in,
                         out_channels=block_out,
                         temb_channels=self.time_embedding_ch,
-                        dropout=dropout
+                        dropout=dropout,
+                        device=device,
+                        dtype=dtype
                     )
                 )
                 block_in=block_out
                 if curr_res in attn_resolutions:
                     attn_block.append(
                         SpatialSelfAttention(
-                            n_channel=block_out
+                            n_channel=block_out,
+                            device=device,
+                            dtype=dtype
                         )
                     )
             down_block=nn.Module()
             down_block.resnet_block=resnet_block
             down_block.attn_block=attn_block
             if i_level!= self.num_resolutions-1:
-                down_block.downsample=DownSample(block_in,resamp_with_conv)
+                down_block.downsample=DownSample(block_in,resamp_with_conv,
+                                                 device=device,
+                        dtype=dtype)
                 curr_res=curr_res//2
             self.down_block=down_block
         
@@ -264,27 +297,36 @@ class Encoder(nn.Module):
             in_channels=block_in,
             out_channels=block_in,
             temb_channels=self.time_embedding_ch,
-            dropout=dropout
+            dropout=dropout,
+            device=device,
+                        dtype=dtype
         )
         self.mid_block.attn1=SpatialSelfAttention(
-            block_in
+            block_in,
+            device=device,
+                        dtype=dtype
         )
         self.mid_block.block2=ResnetBlock(
             in_channels=block_in,
             out_channels=block_in,
             temb_channels=self.time_embedding_ch,
-            dropout=dropout
+            dropout=dropout,
+            device=device,
+                        dtype=dtype
         )
 
         # end block
-        self.norm_out = Normalize(block_in)
+        self.norm_out = Normalize(block_in,device=device,
+                        dtype=dtype)
 
         self.conv_out = nn.Conv2d(
             in_channels=block_in,
             out_channels=2*z_channels if double_z else z_channels,
             kernel_size=3,
             stride=1,
-            padding=1
+            padding=1,
+            device=device,
+                        dtype=dtype
         )
 
     def forward(self, x):
@@ -332,6 +374,8 @@ class Decoder(nn.Module):
             double_z=True,
             give_pre_end=False, 
             tanh_out=False,
+            device=None,
+            dtype=None
         ):
         super().__init__()
         self.ch=ch
@@ -362,7 +406,9 @@ class Decoder(nn.Module):
             out_channels=block_in,
             kernel_size=3,
             stride=1,
-            padding=1
+            padding=1,
+            device=device,
+            dtype=dtype
         )
 
         # middle
@@ -370,16 +416,22 @@ class Decoder(nn.Module):
         self.mid_block.block1=ResnetBlock(
             in_channels=block_in,
             out_channels=block_in,
-            temb_channels=self.time_embedding_ch
+            temb_channels=self.time_embedding_ch,
+            device=device,
+            dtype=dtype
         )
         self.mid_block.attn1=SpatialSelfAttention(
-            block_in
+            block_in,
+            device=device,
+            dtype=dtype
         )
         self.mid_block.block2=ResnetBlock(
             in_channels=block_in,
             out_channels=block_in,
             temb_channels=self.time_embedding_ch,
-            dropout=dropout
+            dropout=dropout,
+            device=device,
+            dtype=dtype
         )
 
         self.up_block=nn.ModuleList()
@@ -393,29 +445,37 @@ class Decoder(nn.Module):
                         in_channels=block_in,
                         out_channels=block_out,
                         temb_channels=self.time_embedding_ch,
-                        dropout=dropout
+                        dropout=dropout,
+                        device=device,
+                        dtype=dtype
                     )
                 )
                 block_in=block_out
                 if curr_res in attn_resolutions:
                     attn_block.append(
-                        SpatialSelfAttention(block_in)
+                        SpatialSelfAttention(block_in,
+                                             device=device,
+                        dtype=dtype)
                     )
             up_block=nn.Module()
             up_block.resnet_block=resnet_block
             up_block.attn_block=attn_block
             if i_level!=0:
-                up_block.upsample=Upsample(in_channels=block_in,with_conv=resamp_with_conv)
+                up_block.upsample=Upsample(in_channels=block_in,with_conv=resamp_with_conv,device=device,
+                        dtype=dtype)
                 curr_res=curr_res*2
             self.up_block.insert(0,up_block)
         #end
-        self.norm_out=Normalize(block_in)
+        self.norm_out=Normalize(block_in,device=device,
+                        dtype=dtype)
         self.conv_out=nn.Conv2d(
             in_channels=block_in,
             out_channels=out_ch,
             kernel_size=3,
             stride=1,
-            padding=1
+            padding=1,
+            device=device,
+            dtype=dtype
         )
 
     def forward(self,z):
