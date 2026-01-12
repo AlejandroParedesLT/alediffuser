@@ -11,6 +11,8 @@ dependencies = [
     "torch>=2.9.0",
     "numpy",
     "tqdm",
+    "matplotlib",
+    "torchvision"
 ]
 
 [build-system]

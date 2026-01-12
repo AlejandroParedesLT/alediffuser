@@ -40,7 +40,7 @@ class UNet(nn.Module):
             padding=1,
             device=device,dtype=dtype
         )
-        
+        self.num_classes=num_classes
         if num_classes:
             self.cond_embedding = nn.Sequential(
                 nn.Embedding(num_classes, hid_size,device=device,dtype=dtype),
@@ -170,9 +170,10 @@ class UNet(nn.Module):
     
     def forward(self, x, t, cond, mask):
         time_emb=self.time_embedding(t)
-        if self.num_classes:
-            cond_emb=self.cond_embedding(cond)
-        
+        # if self.num_classes is not None:
+        #     time_emb=self.cond_embedding(cond)
+
+
         # Downsampling
         hs=[self.firs_conv(x)]
         for i_level in range(len(self.ch_mult)):

@@ -55,10 +55,10 @@ class DDPM(nn.Module):
     def sample(self, n_samples, size):
         self.eval()
         with torch.no_grad():
-            x_t=torch.rand(n_samples,*size,device=self.device,dtype=self.dtype)
+            x_t = torch.randn(n_samples, *size, device=self.device, dtype=self.dtype)
             for t in range(self.T, 0,-1):
-                t_tensor=torch.tensor([t],device=self.device,dtype=self.dtype).repeat(x_t.shape[0],1)
-                pred_noise=self.eps_model(x_t, t_tensor)
+                t_tensor=torch.tensor([t],device=self.device).repeat(x_t.shape[0],1)
+                pred_noise=self.eps_model(x_t, t_tensor,None,None)
                 
                 z=torch.randn_like(x_t,device=self.device,dtype=self.dtype) if t>0 else 0
                 

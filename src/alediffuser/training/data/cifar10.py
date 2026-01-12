@@ -6,6 +6,9 @@ from torch.utils.data.dataset import Dataset
 from torch.utils.data.dataloader import DataLoader
 from typing import Any, Tuple, List
 
+from torchvision.transforms import ToPILImage
+import torch
+
 @dataclass
 class DataPack:
     train_dataset: Dataset
@@ -13,6 +16,20 @@ class DataPack:
     val_dataset: Dataset
     val_dataloader: DataLoader
     transform_to_tensor: Any
+    def __post_init__(self):
+        """Initialize additional attributes after dataclass init"""
+        self.to_pil = ToPILImage()
+    
+    def transform_to_numpy(self, tensor):
+        """Convert normalized tensor back to numpy array [0, 255]"""
+        return (tensor * 127.5 + 127.5).long().clip(0, 255).permute(1, 2, 0).detach().cpu().numpy()
+    
+    def transform_to_pil(self, tensor):
+        """Convert normalized tensor back to PIL Image"""
+        # Denormalize from [-1, 1] to [0, 1]
+        tensor = tensor * 0.5 + 0.5
+        tensor = torch.clamp(tensor, 0, 1)
+        return self.to_pil(tensor.cpu())
     
 
 def transformHelper(tensor):
